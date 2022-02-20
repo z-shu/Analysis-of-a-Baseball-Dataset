@@ -1,0 +1,823 @@
+---
+title: "Analysis of a Baseball Dataset"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: html_notebook
+version: 1.0
+---
+
+
+```{r}
+# Packages to load
+library(ggplot2)
+library(ggthemes)
+library(dplyr)
+library(tidyverse)
+library(eeptools)
+library(stringi)
+library(scales)
+library(ggpubr)
+library(car)
+library(corrplot)
+```
+
+
+# 1. Organise and clean the data
+
+## 1.1 Subset the data into the specific dataset allocated
+
+```{r}
+#load the data
+load("baseball_data.rda")
+```
+
+
+```{r}
+# Code to select specific team combination.
+baseball.data <- subset(baseball_data, teamID.x == "PIT" | teamID.x == "LAA")
+```
+
+```{r}
+# This code will reorder row numbers
+row.names(baseball.data) <- NULL
+```
+
+
+## 1.2 Data quality analysis
+
+***Data Quality Plan***
+
+1) Check the first 6 rows of the data to have an idea on what it includes.
+2) Check the structure of the data set.
+3) Check the levels of the categorical variables
+4) Check if there are any empty strings.
+5) Check if there are any missing values.
+6) Check if the data has any duplicates. If so, check which rows have been duplicated.
+7) Check if two related column overlap (e.g. date of birth and age).
+8) Run a summary of the data to detect if there are any issues.
+
+```{r}
+head(baseball.data) # This will output the first six rows of the data
+```
+
+There are 77 rows and 15 columns.
+There is a problem detected with the class of the data set, as hit.ind should be a factor not numeric.
+
+```{r}
+str(baseball.data) # This will output the structure of the data set
+```
+
+No issues detected with the levels of bats
+
+```{r}
+levels(baseball.data$bats) # This will output the levels of bats
+```
+
+No empty strings detected
+
+```{r}
+any(sapply(baseball.data, stri_isempty)) # This will check if there are any empty strings
+```
+
+Instead of checking missing values in each row separately, sapply() function will do the same but for the whole data set.
+
+No missing values were detected in the data set.
+
+```{r}
+any(sapply(baseball.data, is.na)) # This code will check for any missing value
+```
+
+To check if there are any duplicates in the data set, age and career length will be rounded to three decimal places so the duplicated() function can be applied. To avoid losing some information, a copy of the data will be made and from the copy the duplicated rows will be detected and removed from the data set.
+
+```{r}
+copy.baseball.data <- baseball.data
+```
+
+career.length and age have been rounded up to 3 decimal places (from the copy.baseball.data)
+
+```{r}
+copy.baseball.data$career.length <- round(baseball.data$career.length, 3)
+copy.baseball.data$age <- round(baseball.data$age, 3)
+```
+
+It has been detected that rows 68 and 73 are duplicates and should be removed from the data set.
+
+```{r}
+copy.baseball.data[duplicated(copy.baseball.data), ] # This will output the duplicates in the data
+```
+
+Row 72 has hits less than hit.ind
+
+```{r}
+which(baseball.data$H < baseball.data$hit.ind) # This will check which rows have hits less than hit.ind
+```
+
+It can be noted that the player did not make any hits but has been given the value 1 which means that he at least made one hit. Hence, the value of hit.ind for row 72 should be changed to 0 as the player didn't make any hits.
+
+```{r}
+baseball.data$H[72] # This will check how many hits the player in row 72 has made
+baseball.data$hit.ind[72] # This will check if the player in row 72 has made any hits
+```
+
+There is an issue with the weight as the minimum weight shown is 85 pounds which is very small and considered underweight and according to Jackson (2016) the skinniest player in 2015 weighted 150 pounds. Hence, all weight values that are less than 150 will be treated as outliers.
+
+There is an issue with the height as the maximum height shown is 92 inches which makes the player very tall,also the height of the tallest player in MLB history was 83 inches (Baseball Almanac, no date). Hence, all height values that are more than 83 will be treated as outliers.
+
+There is an issue with the salary as the minimum salary shown is 500.255 dollars which is considered very low salary, and according to Baseball Reference (2020), the minimum salary in MLB for the year 2015 was 507,500 dollars. Hence, all the salary values that are less than 507,500 dollars will be treated as outliers.
+
+There is an issue with the birth date as the youngest player was born in 2001-03-06 which is exceptionally young and according to Mathewson (2019), the youngest player in MLB should be aged 18-year-old minimum for U.S. players and 17 for international players, also the the youngest player in 2015 was born in 1995-04-08 (Baseball Reference, no date) . Hence, this date of birth will be used as the cut off point and all the players born after 1995-04-08 will be treated as outliers and checked with their age incase their age is different than date of birth. Also, age will be compared to age since date of birth, to see if they match.
+
+There is an issue with the minimum career.length as it is a negative number -0.2656 when it shouldn't because the smallest number a career length could be is 0. Hence, all the career.length values that are negative should be treated as outliers. Also the maximum career.length value is 35.4127 which seems very big because according to Baseball Reference (no date), the player with most seasons played in MLB history played 27 seasons (27 years). Hence, all the career.length values that are over 27 years should be treated as outliers. Also career.length values should be compared to the age of the players to see if career length is larger than the age of the player.
+
+```{r}
+summary(baseball.data) # This will output summary of the data
+```
+
+Based on the summary above, rows that have the issues mentioned will be detected
+
+Weight in row 76 should be treated as outlier as the player's weight is over 150 pounds, hence this row should be removed.
+
+```{r}
+which(baseball.data$weight < 150) # This will check weight values that are over 150
+```
+
+Height in row 77 should be treated as outlier as the player's height is over 83 inches, hence this row should be removed.
+
+```{r}
+which(baseball.data$height > 83) #  This will check height values that are over 83
+```
+
+Salary in row 70 should be treated as outlier as the player's salary is less than 507,500 dollrs, hence this row should be removed.
+
+```{r}
+which(baseball.data$salary < 507, 500) # This will check salary values that are less than $507,500
+```
+
+Birth date in rows 69 and 74 should be treated as outliers as the players are born after 1995-04-08.
+
+```{r}
+which(baseball.data$birthDate > as.Date("1995-04-08")) # This will check birth dates after 1995-04-08
+```
+
+There are several steps that will be done to compare age to age from data of birth
+
+1) round up age from the baseball data set
+2) Calculate the age from birth date till 2015-01-01 (this is because the exacat date is not available) then round it up to compare it with the players' age from the baseball data set.
+3) Compare the ages and check which rows have age based on birth date that is different from the age given in the baseball data set.
+
+```{r}
+data.age <- as.integer(round(baseball.data$age)) # This will round up the age
+data.age
+```
+
+```{r}
+birth.age <- age_calc(baseball.data$birthDate, units = "years", enddate = as.Date("2015-01-01")) # This will calculate age from birth date till 2015-01-01
+birth.age <- as.integer(round(birth.age)) # This will round up the age (from birth date)
+birth.age
+```
+
+Rows 69, 74 and 75 have ages from birth date that do not match with ages given in the data set. Hence, they should be treated as outliers and removed from the data set.
+
+```{r}
+which(birth.age != data.age) # This will output the rows that have birth age that doesn't match with age from the data set
+```
+
+Career.length in rows 26 and 71 should be treated as outliers as they are either less than 0 or more than 27, hence these rows should be removed from the data set.
+
+```{r}
+which(baseball.data$career.length < 0 | baseball.data$career.length > 27) # This will output the rows that have career length less than 0 and more than 27
+```
+
+There are several steps that will be done to check if career length is larger than age:
+1) Subtract age from career length 
+2) check which ones are less than 18 (youngest player age requirement)
+
+Rows 71 and 75 should be treated as outliers as it showing that they have played before the legal age which is 18. Hence, these rows should be removed from the data set.
+
+```{r}
+age.career.length <- baseball.data$age - baseball.data$career.length # This will subtract age from career length
+which(age.career.length < 18) # This will output the rows that have values less than 18
+```
+
+ 
+## 1.3 Data cleaning  
+
+Class of hit.ind is changed as it should be a factor and not numeric.
+
+```{r}
+baseball.data$hit.ind <- as.factor(baseball.data$hit.ind) # This will change hit.ind to a factor
+```
+
+hit.ind for row 72 is changed to zero as this row had hits less than hit.ind (making at least a hit).
+
+```{r}
+baseball.data$hit.ind <- replace(baseball.data$hit.ind, 72, 0) # This will replace the value of hit.ind in row 72 to 0
+```
+
+Rows that will be removed are; 68 and 73 because they are duplicates, 76 because the player's weight is less than 150 pounds, 77 because the player's height is more than 83 inches, 70 because the player's salary is less than $507,500, 69 and 74 because they are young based on their date of birth and their age is also different than age since birth, 75 because the player's age is different from age since birth also the player's career length is larger than his age, 26 because the career length is a negative number which is less than 0, 71 because the player's career length is more than 27 and his career length is larger than his age.
+
+```{r}
+baseball.data <- baseball.data[-c(26, 68, 69, 70, 71, 73, 74, 75, 76, 77), ] # This will remove the rows that are detected to contain one or more outlier
+```
+
+```{r}
+row.names(baseball.data) <- NULL # This code will reorder row numbers
+```
+
+
+# 2. Exploratory Data Analysis (EDA)
+
+## 2.1 EDA plan
+
+1) Check the first six rows of the data
+2) Check the structure of the data
+3) Run a summary of the data with interpretation
+4) Plot the data (univariate and multivariate) with interpretation
+5) Raise any issues detected and how to deal with them
+
+
+## 2.2 EDA and summary of results  
+
+```{r}
+head(baseball.data) # This will output the first 6 rows of the data
+```
+
+There are 67 rows and 15 columns.
+No issues detected in the structure of the data.
+
+```{r}
+str(baseball.data) # The will output the structure of the data
+```
+
+***Interpretataion of the summry output***
+
+The data set has 67 players with 34 playing for LAA and 33 playing for PIT.
+Minimum and maximum of games played by a player are 2 and 159 respectively with a mean of 63.36.
+
+Minimum and maximum number of runs are 0 and 104 respectively with a mean of 18.22.
+
+Minimum and maximum number of hits are 0 and 172 respectively with a mean of 37.76.
+
+Minimum and maximum number of At Bats are 0 and 630 respectively with a mean of 148.2.
+
+Minimum and maximum of Runs Batted In are 0 and 96 respectively with a mean of 17.49.
+
+Minimum and maximum of player's weight are 180 pounds and 250 pounds respectively with a mean weight of 211.6 pounds.
+
+Minimum and maximum of player's height are 68 inches and 79 inches respectively with a mean height of 73.52 inches.
+
+Minimum and maximum of player's salary are 509,500 and 24,000,000 dollars respectively with a mean salary of 4088775 dollars.
+
+The oldest player was born in 1977-01-03 with age of 37.99 years, and the youngest player was born in 1991-09-14 with age of 23.30 years. Median birth date is 1985-09-02 with age being 29.33 years.
+
+Minimum and maximum of player's career length are 0.5613 and 16.6023 respectively with a mean career length of 5.5590.
+
+44 players can bat with their right hand, 20 with their left hand and 3 can bat using both hands.
+
+Out of the 67 players, 21 did not make a hit while 46 made at least one hit.
+
+```{r}
+summary(baseball.data) # This will output summary of the data
+```
+
+***Visual representations of the summary (Univaraite)***
+
+Frequency of players in Team LAA and PIT
+
+```{r}
+ggplot(baseball.data) +
+  geom_bar(aes(x = teamID.x), fill = c("#009daa", "#006e78")) +
+  xlab("Team ID") +
+  labs(title = "Frequency of players in Team LAA and PIT")
+```
+
+Boxplot of games played by a player
+
+```{r}
+ggboxplot(
+  baseball.data$G,
+  ylab = "Games",
+  fill = "#006e78",
+  xlab = FALSE,
+  ggtheme = theme_economist()
+) + labs(title = "Boxplot of games played by a player")
+```
+
+Boxplot of Number of Runs
+
+There are several outliers detected in number of runs.
+
+```{r}
+ggboxplot(
+  baseball.data$R,
+  ylab = "Runs",
+  fill = "#006e78",
+  xlab = FALSE,
+  ggtheme = theme_economist()
+) + labs(title = "Boxplot of Number of Runs")
+```
+
+Boxplot of Number of Hits
+
+There are several outliers detected in the number of hits.
+
+```{r}
+ggboxplot(
+  baseball.data$H,
+  ylab = "Hits",
+  fill = "#006e78",
+  xlab = FALSE,
+  ggtheme = theme_economist()
+) + labs(title = "Boxplot of Number of Hits")
+```
+
+Boxplot of number of times it was a player’s turn to bat
+
+There are several outliers detected in the number of times it was a player’s turn to bat.
+
+```{r}
+ggboxplot(
+  baseball.data$AB,
+  ylab = "At Bats",
+  fill = "#006e78",
+  xlab = FALSE,
+  ggtheme = theme_economist()
+) + labs(title = "Boxplot of number of times it was a player’s turn to bat")
+```
+
+Boxplot of Number of Runs Batted In
+
+There are several outliers detected in the number of runs batted in.
+
+```{r}
+ggboxplot(
+  baseball.data$RBI,
+  ylab = "Runs Batted In",
+  fill = "#006e78",
+  xlab = FALSE,
+  ggtheme = theme_economist()
+) + labs(title = "Boxplot of Number of Runs Batted")
+```
+
+Boxplot of Players' Weight in Pounds
+
+```{r}
+ggboxplot(
+  baseball.data$weight,
+  ylab = "Weight (pounds)",
+  fill = "#006e78",
+  xlab = FALSE,
+  ggtheme = theme_economist()
+) + labs(title = "Boxplot of Players' Weight in Pounds")
+```
+
+Boxplot of Players' Height in Inches
+
+```{r}
+ggboxplot(
+  baseball.data$height,
+  ylab = "Height (inches)",
+  fill = "#006e78",
+  xlab = FALSE,
+  ggtheme = theme_economist()
+) + labs(title = "Boxplot of Players' Height in Inches")
+```
+
+Boxplot of the Salary of the Players
+
+There are two outliers detected in the Salary of the Players, meaning that two players' salary is very high.
+
+```{r}
+ggboxplot(
+  baseball.data$salary,
+  ylab = "Salary per year (US Dollars)",
+  fill = "#006e78",
+  xlab = FALSE,
+  ggtheme = theme_economist()
+) + labs(title = "Boxplot of the Salary of the Players") + scale_y_continuous(labels = comma)
+```
+
+Histogram of The date of birth of the players
+
+Majority of the players are born after 1982 and before 1989.
+
+```{r}
+ggplot(baseball.data, aes(birthDate)) +
+  geom_histogram(bins = 10, aes(y = stat(density)), fill = "#006e78") +
+  geom_density(col = "red") +
+  scale_y_continuous(labels = comma) +
+  labs(title = "Histogram of The date of birth of the players") +
+  xlab("Year of birth") +
+  scale_x_date(date_breaks = "2 years")
+```
+
+Boxplot of the career length of the players
+
+There are several outliers detected in players career length, with two players having much higher career length than the rest.
+
+```{r}
+ggboxplot(
+  baseball.data$career.length,
+  ylab = "Career Length (years)",
+  fill = "#006e78",
+  xlab = FALSE,
+  ggtheme = theme_economist()
+) + labs(title = "Boxplot of the career length of the players")
+```
+
+Frequency of bats (using right, left, and both)
+
+Majority of the player bat using their right hand, and less than 5 players bat using both hands while only 20 players bat using their left hand.
+
+```{r}
+ggplot(baseball.data) +
+  geom_bar(aes(x = bats), fill = c("#00666d","#008591", "#0096a1")) +
+  labs(title = "Frequency of bats R (Right) L (Left) and B (Both)") +
+  xlab("Bats")
+```
+
+Boxplot of the The age of the players
+
+There is one outlier detected. There seems to be one player who is way older than the rest of the team.
+
+```{r}
+ggboxplot(
+  baseball.data$age,
+  ylab = "Age (year)",
+  fill = "#006e78",
+  xlab = FALSE,
+  ggtheme = theme_economist()
+) + labs(title = "Boxplot of the The age of the players")
+```
+
+Frequency of hits
+
+more than 45 of the players made at least a hit while less than 25 of the players didn't make a hit.
+
+```{r}
+ggplot(baseball.data) +
+  geom_bar(aes(x = hit.ind), fill = c("#009daa","#008591")) +
+  labs(title = "Frequency of hits, 0 (no hit) 1 (one or more)") +
+  xlab("Hits")
+```
+
+***Visual representations (multivaraite)***
+
+Salary vs Team 
+
+Median salary for team PIT is more than team LAA, while players team LAA had higher maximum salary in comparison with team PIT.
+Three outliers are detected, two in team LAA and one in team PIT.
+
+```{r}
+ggplot(baseball.data) +
+  geom_boxplot(aes(x = teamID.x, y = salary), fill = "#006e78") +
+  labs(title = "The players' salary based on Team ID") +
+  xlab("Team ID") +
+  ylab("Salary per year (US Dollars)") +
+  scale_y_continuous(labels = comma) +
+  theme_economist() +
+  scale_fill_economist()
+```
+
+Salary VS games based on teams
+
+There seems to be very weak linear relationship between salary and games played. There are also some very high values indicating outliers.
+
+```{r}
+ggplot(baseball.data, (aes(x = G, y = salary, color = teamID.x, shape = teamID.x))) +
+  theme_gray() +
+  ylab("Salary per year (US Dollars)") +
+  xlab("Games played") +
+  labs(title = "Salary of Players Based on Team ID and Games Played") +
+  geom_point() +
+  scale_y_continuous(labels = comma) +
+  geom_smooth(method = lm, se = FALSE)
+```
+
+Salary vs Runs based on teams
+
+There seems to be very weak linear relationship between salary and runs. There are also some very high values indicating outliers.
+
+```{r}
+ggplot(baseball.data, (aes(x = R, y = salary, color = teamID.x, shape = teamID.x))) +
+  theme_gray() +
+  ylab("Salary per year (US Dollars)") +
+  xlab("Runs") +
+  labs(title = "Salary of Players Based on Team ID and Runs") +
+  geom_point() +
+  scale_y_continuous(labels = comma) +
+  geom_smooth(method = lm, se = FALSE)
+```
+
+Salary vs Hits based on teams
+
+There seems to be very weak linear relationship between salary and hits. There are also some very high values indicating outliers.
+
+```{r}
+ggplot(baseball.data, (aes(x = H, y = salary, color = teamID.x, shape = teamID.x))) +
+  theme_gray() +
+  ylab("Salary per year (US Dollars)") +
+  xlab("Hits") +
+  labs(title = "Salary of Players Based on Team ID and Hits") +
+  geom_point() +
+  scale_y_continuous(labels = comma) +
+  geom_smooth(method = lm, se = FALSE)
+```
+
+Salary vs AB based on teams
+
+There seems to be some sort of a linear relationship between salary and AB. There are also some very high values indicating outliers.
+
+```{r}
+ggplot(baseball.data, (aes(x = AB, y = salary, color = teamID.x, shape = teamID.x))) +
+  theme_gray() +
+  ylab("Salary per year (US Dollars)") +
+  xlab("At Bats") +
+  labs(title = "Salary of Players Based on Team ID and At Bats") +
+  geom_point() +
+  scale_y_continuous(labels = comma) +
+  geom_smooth(method = lm, se = TRUE)
+```
+
+Salary vs RBI based on teams
+
+There seems to be some sort of a linear relationship between salary and RBI. There are also some very high values indicating outliers.
+
+```{r}
+ggplot(baseball.data, (aes(x = RBI, y = salary, color = teamID.x, shape = teamID.x))) +
+  theme_gray() +
+  ylab("Salary per year (US Dollars)") +
+  xlab("Runs Batted In") +
+  labs(title = "Salary of Players Based on Team ID and Runs Batted In") +
+  geom_point() +
+  scale_y_continuous(labels = comma) +
+  geom_smooth(method = lm, se = TRUE)
+```
+
+Salary vs Career Length based on teams
+
+There seems to be a relationship between salary and career length.  
+
+```{r}
+ggplot(baseball.data, (aes(x = career.length, y = salary, color = teamID.x, shape = teamID.x))) +
+  theme_gray() +
+  ylab("Salary per year (US Dollars)") +
+  xlab("Career Length") +
+  labs(title = "Salary of Players Based on Team ID and Career Length") +
+  geom_point() +
+  scale_y_continuous(labels = comma) +
+  geom_smooth(method = lm, se = FALSE)
+```
+
+Salary vs Age based on teams
+
+There seems to be a relationship between salary and age. 
+
+```{r}
+ggplot(baseball.data, (aes(x = age, y = salary, color = teamID.x, shape = teamID.x))) +
+  theme_gray() +
+  ylab("Salary per year (US Dollars)") +
+  xlab("Age (Year)") +
+  labs(title = "Salary of Players Based on Team ID and Age") +
+  geom_point() +
+  scale_y_continuous(labels = comma) +
+  geom_smooth(method = lm, se = FALSE)
+```
+
+Salary appears to have a positive relationship with career length, age,  while there is unclear relationship with the rest of the variables. It can also be seen that G, R, H, AB and RBI all have linear relationship hence this could be a sign of multicollinearity. Similarly, height and weight have linear relationship, and career length and age also have linear relationship. 
+
+```{r}
+pairs(baseball.data[2:15], panel = panel.smooth) # This will output scatter plots
+```
+
+
+## 2.3 Additional insights and issues
+
+There were two issues detected, outliers and variables that could be highly correlated.
+
+Outliers will not be removed or imputed, instead they will be left as they are. This is because the outliers do not point to encoding error. Also they are possible values that might not be seen as outliers in a bigger data set. Hence, removing it or changing it will affect the analysis results. A disadvantage that might raise of not removing the outliers is that they could be problematic as linear regression models are known to be sensitive to it. However, if all the values that point to outliers are removed, a very low data set will be the result, hence it will affect the model performance.
+
+***Computation of correlation matrix and correlation coefficients to detect any highly correlated variables.***
+
+G,R,H, and RBI are highly correlated, weight and height are highly correlated, and career length and age are highly correlated. This is indicating a multicollinearity issue between the predictor variables. Hence, after my first model I will use vif() function to assess multicollinearity of the predictor variables. 
+
+```{r}
+correlations <- cor(baseball.data[c(3, 4, 5, 6, 7, 8, 9, 10, 12, 14)])
+corrplot(correlations, method = "circle") # Graphical display of correlation matrix
+```
+
+```{r}
+num.cor <- cor(baseball.data[c(3, 4, 5, 6, 7, 8, 9, 10, 12, 14)])
+num.cor # This will compute the correlation coefficients
+```
+
+
+# 3. Modelling
+
+## 3.1 Build a model for player salary
+
+***Analysis Plan***
+
+Following the findings from 1.3 and 2.2 it was decided that Acnova will be used to build a model for player salary as the dependent varaible is continous (salary) and the explanoatory variables are categorical and continuous(teamID.x, G, R, H, AB, RBI, career.length and age). These variables were chosen to be included in the model as they can have an effect on salary.
+Assumptions of the model include;
+1) The covariates are not highly correlated
+2) Constant variance
+3) No sign of heteroscedasticy
+4) Residuals are normally distributed
+
+To check if the assumptions are met, diagnostics of the model will be performed. This will be done by running a summary of the model, diagnostic plots of the model in addition to detecting multicollinearity in the model using vif().
+
+***Interpretation of model output***
+
+Observing the coefficients of the model, it can be noted that there is a positive relationship between salary and R, salary and AB, salary and RBI, salary and career.length, and salary and age as the estimate value for the effect of R, AB, RBI, career.length and age is 222426, 4531, 44055, 846806, and 124195 respectively. While there is a negative relationship between G and salary, and H and salary as the estimate value for the effect of G and H is -13046 and -120643 respectively. It can also be noted that teamID.xPIT has a negative effect on salary as the estimate value is -837510. 
+
+```{r}
+ancova.model1 <- lm(salary ~ teamID.x + G + R + H + AB + RBI + career.length + age, data = baseball.data) # model for player salary
+ancova.model1 # This will show the output of the model
+```
+
+
+## 3.2 Critique model using relevant diagnostics
+
+***Interpretation of the model summary***
+
+Observing the coefficients from the summary of the model, it can be noted that only R and career.length are significant to zero, 0.02851 * and 0.00241 ** respectively. Therefore, it can be concluded that this model does not have an acceptable goodness of fit as not all the coefficients are significant.
+
+The adjusted R-squared is 0.5343, hence it can be concluded that ~53% of the overall variance is explained by this model which is acceptable but not very good.
+
+The variance explained by this model VS the variance explained by the error (H0: equal variances vs H1: variances are not equal). Looking at the F-statistic it can be seen that P value is 6.147e-09 which is less than 0.05, meaning that there is a significant difference between the variances therefore reject a hypothesis of equal variances (reject H0).
+
+```{r}
+summary(ancova.model1) # This will output summary of the model
+```
+
+***Interpretation of diagnostic plots***
+
+From the diagnostic plots, the first plot which is the residuals vs fitted shows that the red line is not straight and is showing some trends also the points are not scattered randomly but they are more scatted on the left, hence indicating that the errors have do not have a constant variance.
+
+The second plot which is the Q-Q plot and it will show if the residuals are normally distributed. In this case the plot does not indicate major problems and it shows that most points are on the straight line however there are some outliers detected (42, 64, 63).
+
+The third is the Scale-Location and it is showing a problem as the residuals scatter seem to increase as the fitted values increase, hence indicating a heteroscedasticity problem.
+
+```{r}
+plot(ancova.model1) # This will show the diagnostic plots
+```
+
+***Interpretation of vif score***
+
+The vif score for R, H, AB and RBI is very high 48.290033, 124.822402, 91.134142 and 14.178954 respectively, hence indicating a problem. In light with this, the variables that do not show a linear relationship with salary and scored more than 10 and will be removed as this amount of collinearity is a problem(James et al. 2014).
+
+```{r}
+vif(ancova.model1) # This will assess multicollinearity of the predictor variables
+```
+
+
+## 3.3 Suggest improvements to your model
+
+Following the findings in 3.2, a second improved model will be built and it will include salary as the dependent variable and teamID.x, RBI and career.length as the independent variables. G, R, H and AB will not be included in this model as they are highly correlated and not related to salary as shown in 2.2 and 2.3. Even though age did not score high vif value of more than 10 but it was highly correlated with career.length hence removing the one that scored higher vif value will be reasonable (in this case age scored higher vif value than career.length). 
+
+***Interpretation of the model summary***
+
+From the summary of the model it can be noted that there is a positive relationship between RBI and salary as the estimate value for the effect of RBI is 43409. Similarly there is a positive relationship between career.length and salary as the estimate value for the effect of career.length is 932970. It can also be noted that teamID.xPIT has a negative effect on salary as the estimate value is -1085576.
+
+Observing the coefficients it can be noted that only RBI and career.length are significant to zero, 0.00543 ** and 4.44e-11 *** respectively. Therefore, it can be concluded that this model does not have an acceptable goodness of fit as all the coefficients are not significant.
+
+The adjusted R-squared is 0.5184, hence it can be concluded that ~52% of the overall variance is explained by this model which is acceptable but not very good.
+
+The variance explained by this model vs the variance explained by the error (H0: equal variances vs H1: variances are not equal). Looking at the F-statistic it can be seen that P value is 1.114e-10 which is less than 0.05, meaning that there is a significant difference between the variances therefore reject a hypothesis of equal variances (reject H0).
+
+```{r}
+ancova.model2 <- lm(salary ~ teamID.x + RBI + career.length, data = baseball.data) # improved salary model
+summary(ancova.model2) # This will output summary of the model
+```
+
+***Interpretation of diagnostic plots***
+
+From the diagnostic plots, the first plot which is the residuals vs fitted shows that the red line is not straight and is showing some trends also the points are not scattered randomly but they are more scatted on the left, hence indicating that the errors do not have a constant variance.
+
+The second plot which is the Q-Q plot shows that most points are close to the straight line and does not indicate major problems however there are some outliers (42, 64, 63). These are the same outliers detected in 2.2 and 3.1, and they indicate the players who had the highest salaries.
+
+The third is the Scale-Location and it indicates a problem as the residuals scatter seem to increase as the fitted values increase, hence indicating a heteroscedasticity problem.
+
+```{r}
+plot(ancova.model2) # This will show the diagnostic plots
+```
+
+***Interpretation of vif score***
+
+The vif score does not indicate a problem as all the scores are less than 10. Hence, there is no multicollinearity isssue.
+
+```{r}
+vif(ancova.model2) # This will assess multicollinearity of the predictor variables
+```
+
+
+# 4. Extension work
+
+## 4.1 Model the likelihood of a player having scored a Hit (using the hit.ind variable provided).
+
+***Analysis plan***
+
+1) Since the dependent variable hit.ind is binary, logistic regression will be used to model the likelihood of a player having scored a hit using the glm() function. 
+
+2) Before modelling, table analysis, and Chi squared or fisher test will be used to see if there is a relationship between hit.ind and bats. If they are independent, bats will be removed from the model and if they are dependent, it will be kept in the model.
+
+3) Start with a model that includes all the variables (bats be added only if they show dependence with hit.ind) then vif() function will be used to detect multicollinearity of the predictor variables.
+
+4) Remove the variables that have vif score of more than 10.
+
+5) Build another model after removing the highly correlated predictor variables.
+
+6) Use the step() function to simplify the model and get the minimal adequate model.
+
+7) Interpret the finding of the  minimal adequate model.
+
+8) Calculate the odds ratio.
+
+9) Interpret the results of the odds ratio.
+
+
+***Table analysis findings interpretation***
+
+Since more than one of the expected frequencies are less than 5. Fisher's Exact Test will be applied.
+
+```{r}
+hit.bats.table <- table(baseball.data$bats, baseball.data$hit.ind) #
+hit.bats.table
+```
+
+***Fisher's Exact Test Hypothesis***
+
+The null hypothesis (H0): hit.ind and bats are independent, there is no relationship between hit.ind and bats.
+The alternative hypothesis (HA): hit.ind and bats are dependent, there is a relationship between hit.ind and bats.
+
+***Fisher's Exact Test finding's interpretation***
+
+From the output it can be noted that there is no relationship between hit.ind and bats as the p-value is 0.05911 which is more than 0.05 hence the null hypothesis is not rejected and it can be concluded that hit.ind and bats are independent. This means that bats will not be added to the model.
+
+```{r}
+fisher.test(hit.bats.table) # This will run Fisher's Exact Test
+```
+
+***Interpretation of vif score***
+
+The vif score for R, H, AB, RBI, weight, height, career.length is very high 174.772261, 547.758684, 580.949366, 367.580514, 14.260190, 14.272383, 10.668743 and 14.294986 respectively, hence indicating a problem. In light with this, variables that scored more than 10 will be removed from the model.
+
+```{r}
+logistic.mod <- glm(hit.ind ~ teamID.x + G + R + H + AB + RBI + weight + height + salary + career.length + age, family = "binomial", data = baseball.data) # Maximal Model
+vif(logistic.mod) # This will assess multicollinearity of the predictor variables
+```
+
+AIC step function model
+
+The minimal adequate model is glm(formula = hit.ind ~ teamID.x + G, family = "binomial", data = baseball.data) with AIC of 82.13.
+
+```{r}
+model.max <- glm(hit.ind ~ teamID.x + G + age, family = "binomial", data = baseball.data) # Maximal Model
+step(model.max) # This will end with the best model (minimal adequate model)
+```
+
+***Interpretation of the model summary***
+
+The coefficients correspond to the following model
+
+For Team = LAA:
+$log(\frac{p}{1-p})= -0.362435+0.012366 \times \text{games} +0.974684 \times 0$
+
+For Team = PIT:
+$log(\frac{p}{1-p})= -0.362435+0.012366 \times \text{games} +0.974684 \times 1$
+
+The log odds that LAA player make at least a hit is -0.362435. There is an increase of 0.974684 in log odds that PIT player make at least a hit over the odds that LAA player will make a hit. Also, each unit increase in G (games) increases the log odds of making at least a hit by 0.012366.
+
+The p value for all the coefficients are over 0.05, hence it can be concluded that the log odds and the log odds ratio are both not statistically significant and are not useful predictors.  
+
+```{r}
+model.min <- glm(hit.ind ~ teamID.x + G, family = "binomial", data = baseball.data)
+summary(model.min) # This will output model summary
+```
+
+***Odds Ratio***
+
+Team PIT's odds of making at least a hit are 165.03% more than team LAA's odds of making at least a hit.
+
+For one unit increase in G (games played by a player), the odds of making at least a hit increases by 1.244326%.
+
+```{r}
+exp(coef(model.min)) # This will calculate the odd ratios
+```
+
+
+# References 
+
+Baseball Almanac (no date) Jon Rauch Stats. Available at: https://www.baseball-almanac.com/players/player.php?p=rauchjo01 (Accessed: 15 November 2020).
+
+Baseball Reference (2020) Minimum Salary. Available at: https://www.baseball-reference.com/bullpen/Minimum_salary (Accessed: 15 November 2020).
+
+Baseball Reference (no date) Most Seasons Played. Available at: https://www.baseball-reference.com/leaders/leaders_most_seasons.shtml (Accessed: 15 November 2020).
+
+Baseball Reference (no date) Yearly League Leaders & Records for Youngest. Available at: https://www.baseball-reference.com/leaders/Youngest_leagues.shtml (Accessed: 15 November 2020).
+
+Jackson, M. (2016) The 2015 MLB All-Skinny Team. Available at: https://www.beyondtheboxscore.com/2016/1/6/10712314/2015-mlb-all-skinny-team-new-years-resolution (Accessed: 15 November 2020).
+
+James, G., Witten, D., Hastie, T. and Tibshirani, R. (2014) An Introduction to Statistical Learning: with Applications in R. Springer Publishing Company.
+
+Mathewson, T. (2019) How young is too young to play professional sports? Available at: https://globalsportmatters.com/culture/2019/04/25/how-young-is-too-young-to-play-professional-sports/#:~:text=The%20NFL%20requires%20athletes%20to,and%2017%20for%20international%20players (Accessed: 15 November 2020).
