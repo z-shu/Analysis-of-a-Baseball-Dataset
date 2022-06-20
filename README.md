@@ -1,4 +1,4 @@
-# Analysis-of-a-Baseball-Dataset Demo
+# Analysis of a Real World Baseball Dataset
 
 # NOTE
 Please download the files as a zip folder so you can open the HTML file which will show you the plots produced (the .Rmd file won't show you the output of my code) 
